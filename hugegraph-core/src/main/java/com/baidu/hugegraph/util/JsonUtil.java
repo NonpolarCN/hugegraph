@@ -21,18 +21,29 @@ package com.baidu.hugegraph.util;
 
 import java.io.IOException;
 import java.util.Date;
+import java.util.Map;
 
+import com.baidu.hugegraph.HugeException;
 import com.baidu.hugegraph.backend.BackendException;
+import com.baidu.hugegraph.backend.id.EdgeId;
+import com.baidu.hugegraph.backend.id.Id;
+import com.baidu.hugegraph.backend.id.IdGenerator;
+import com.baidu.hugegraph.structure.HugeEdge;
+import com.baidu.hugegraph.structure.HugeElement;
+import com.baidu.hugegraph.structure.HugeProperty;
+import com.baidu.hugegraph.structure.HugeVertex;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.Module;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import com.fasterxml.jackson.databind.jsontype.TypeSerializer;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.ser.std.StdSerializer;
 
@@ -44,6 +55,16 @@ public final class JsonUtil {
         SimpleModule module = new SimpleModule();
         module.addSerializer(Date.class, new DateSerializer());
         module.addDeserializer(Date.class, new DateDeserializer());
+
+        module.addSerializer(IdGenerator.StringId.class,
+                             new IdSerializer<>(IdGenerator.StringId.class));
+        module.addSerializer(IdGenerator.LongId.class,
+                             new IdSerializer<>(IdGenerator.LongId.class));
+        module.addSerializer(EdgeId.class, new IdSerializer<>(EdgeId.class));
+
+        module.addSerializer(HugeVertex.class, new HugeVertexSerializer());
+        module.addSerializer(HugeEdge.class, new HugeEdgeSerializer());
+
         mapper.registerModule(module);
     }
 
@@ -116,10 +137,10 @@ public final class JsonUtil {
         }
 
         @Override
-        public void serialize(Date date, JsonGenerator jsonGenerator,
+        public void serialize(Date date, JsonGenerator generator,
                               SerializerProvider provider)
                               throws IOException {
-            jsonGenerator.writeNumber(date.getTime());
+            generator.writeNumber(date.getTime());
         }
     }
 
@@ -132,11 +153,142 @@ public final class JsonUtil {
         }
 
         @Override
-        public Date deserialize(JsonParser jsonParser,
+        public Date deserialize(JsonParser parser,
                                 DeserializationContext context)
                                 throws IOException {
-            Long number = jsonParser.readValueAs(Long.class);
+            Long number = parser.readValueAs(Long.class);
             return new Date(number);
+        }
+    }
+
+    private static class IdSerializer<T extends Id> extends StdSerializer<T> {
+
+        public IdSerializer(Class<T> clazz) {
+            super(clazz);
+        }
+
+        @Override
+        public void serialize(T value, JsonGenerator generator,
+                              SerializerProvider provider)
+                              throws IOException {
+            if (value.number()) {
+                generator.writeNumber(value.asLong());
+            } else {
+                generator.writeString(value.asString());
+            }
+        }
+
+        @Override
+        public void serializeWithType(T value,
+                                      JsonGenerator generator,
+                                      SerializerProvider serializers,
+                                      TypeSerializer typeSer)
+                                      throws IOException {
+            typeSer.writeTypePrefixForScalar(value, generator);
+            this.serialize(value, generator, serializers);
+            typeSer.writeTypeSuffixForScalar(value, generator);
+        }
+    }
+
+    private static abstract class HugeElementSerializer<T extends HugeElement>
+                            extends StdSerializer<T> {
+
+        public HugeElementSerializer(Class<T> clazz) {
+            super(clazz);
+        }
+
+        public void writeIdField(String fieldName, Id id,
+                                 JsonGenerator generator)
+                                 throws IOException {
+            generator.writeFieldName(fieldName);
+            if (id.number()) {
+                generator.writeNumber(id.asLong());
+            } else {
+                generator.writeString(id.asString());
+            }
+        }
+
+        public void writeProptiesField(Map<Id, HugeProperty<?>> properties,
+                                       JsonGenerator generator,
+                                       SerializerProvider provider)
+                                       throws IOException {
+            // Start write properties
+            generator.writeFieldName("properties");
+            generator.writeStartObject();
+
+            for (HugeProperty<?> property : properties.values()) {
+                String key = property.key();
+                Object val = property.value();
+                try {
+                    generator.writeFieldName(key);
+                    if (val != null) {
+                        JsonSerializer<Object> serializer =
+                                provider.findValueSerializer(val.getClass());
+                        serializer.serialize(val, generator, provider);
+                    } else {
+                        generator.writeNull();
+                    }
+                } catch (IOException e) {
+                    throw new HugeException(
+                              "Failed to serialize property(%s: %s) " +
+                              "for vertex '%s'", key, val, property.element());
+                }
+            };
+            // End wirte properties
+            generator.writeEndObject();
+        }
+    }
+
+    private static class HugeVertexSerializer
+                   extends HugeElementSerializer<HugeVertex> {
+
+        public HugeVertexSerializer() {
+            super(HugeVertex.class);
+        }
+
+        @Override
+        public void serialize(HugeVertex vertex, JsonGenerator generator,
+                              SerializerProvider provider)
+                              throws IOException {
+            generator.writeStartObject();
+
+            this.writeIdField("id", vertex.id(), generator);
+            generator.writeStringField("label", vertex.label());
+            generator.writeStringField("type", "vertex");
+
+            this.writeProptiesField(vertex.getProperties(), generator, provider);
+            generator.writeEndObject();
+        }
+    }
+
+    private static class HugeEdgeSerializer
+                   extends HugeElementSerializer<HugeEdge> {
+
+        public HugeEdgeSerializer() {
+            super(HugeEdge.class);
+        }
+
+        @Override
+        public void serialize(HugeEdge edge, JsonGenerator generator,
+                              SerializerProvider provider)
+                              throws IOException {
+            generator.writeStartObject();
+
+            // Write id, label, type
+            this.writeIdField("id", edge.id(), generator);
+            generator.writeStringField("label", edge.label());
+            generator.writeStringField("type", "edge");
+
+            HugeVertex outVertex = (HugeVertex) edge.outVertex();
+            HugeVertex inVertex = (HugeVertex) edge.inVertex();
+            this.writeIdField("outV", outVertex.id(), generator);
+            generator.writeStringField("outVLabel", outVertex.label());
+            this.writeIdField("inV", inVertex.id(), generator);
+            generator.writeStringField("inVLabel", inVertex.label());
+
+            this.writeProptiesField(edge.getProperties(), generator, provider);
+
+            generator.writeEndObject();
         }
     }
 }

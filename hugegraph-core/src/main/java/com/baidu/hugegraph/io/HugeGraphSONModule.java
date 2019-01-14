@@ -141,7 +141,7 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         @Override
         public void serialize(Optional optional,
                               JsonGenerator jsonGenerator,
-                              SerializerProvider serializer)
+                              SerializerProvider provider)
                               throws IOException {
             if (optional.isPresent()) {
                 jsonGenerator.writeObject(optional.get());
@@ -160,7 +160,7 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         @Override
         public void serialize(T value,
                               JsonGenerator jsonGenerator,
-                              SerializerProvider serializer)
+                              SerializerProvider provider)
                               throws IOException {
             if (value.number()) {
                 jsonGenerator.writeNumber(value.asLong());
@@ -172,11 +172,11 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         @Override
         public void serializeWithType(T value,
                                       JsonGenerator jsonGenerator,
-                                      SerializerProvider serializers,
+                                      SerializerProvider provider,
                                       TypeSerializer typeSer)
                                       throws IOException {
             typeSer.writeTypePrefixForScalar(value, jsonGenerator);
-            this.serialize(value, jsonGenerator, serializers);
+            this.serialize(value, jsonGenerator, provider);
             typeSer.writeTypeSuffixForScalar(value, jsonGenerator);
         }
     }
@@ -229,7 +229,7 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         @Override
         public void serialize(PropertyKey pk,
                               JsonGenerator jsonGenerator,
-                              SerializerProvider serializer)
+                              SerializerProvider provider)
                               throws IOException {
             writeEntry(jsonGenerator, schemaSerializer.writePropertyKey(pk));
         }
@@ -245,7 +245,7 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         @Override
         public void serialize(VertexLabel vl,
                               JsonGenerator jsonGenerator,
-                              SerializerProvider serializer)
+                              SerializerProvider provider)
                               throws IOException {
             writeEntry(jsonGenerator, schemaSerializer.writeVertexLabel(vl));
         }
@@ -260,7 +260,7 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         @Override
         public void serialize(EdgeLabel el,
                               JsonGenerator jsonGenerator,
-                              SerializerProvider serializer)
+                              SerializerProvider provider)
                               throws IOException {
             writeEntry(jsonGenerator, schemaSerializer.writeEdgeLabel(el));
         }
@@ -276,7 +276,7 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         @Override
         public void serialize(IndexLabel il,
                               JsonGenerator jsonGenerator,
-                              SerializerProvider serializer)
+                              SerializerProvider provider)
                               throws IOException {
             writeEntry(jsonGenerator, schemaSerializer.writeIndexLabel(il));
         }
@@ -290,7 +290,7 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
 
         @Override
         public void serialize(Shard shard, JsonGenerator jsonGenerator,
-                              SerializerProvider serializer)
+                              SerializerProvider provider)
                               throws IOException {
             jsonGenerator.writeStartObject();
             jsonGenerator.writeStringField("start", shard.start());
